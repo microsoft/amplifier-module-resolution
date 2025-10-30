@@ -9,6 +9,7 @@ Concrete implementations for various source types:
 import hashlib
 import logging
 import subprocess
+from importlib import metadata
 from pathlib import Path
 
 from .exceptions import InstallError
@@ -176,7 +177,7 @@ class GitSource:
             target: Target directory for download
 
         Raises:
-            subprocess.CalledProcessError: Download failed
+            subprocess.CalledProcessError: Download failed (includes stderr in exception message)
         """
         target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -197,7 +198,16 @@ class GitSource:
         ]
 
         logger.debug(f"Running: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        # Check for errors and include stderr in exception
+        if result.returncode != 0:
+            error_msg = f"Command {cmd} failed with exit code {result.returncode}"
+            if result.stderr:
+                error_msg += f"\nError output:\n{result.stderr.strip()}"
+            if result.stdout:
+                error_msg += f"\nStandard output:\n{result.stdout.strip()}"
+            raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
 
     def __repr__(self) -> str:
         sub = f"#{self.subdirectory}" if self.subdirectory else ""
@@ -225,9 +235,7 @@ class PackageSource:
             ModuleResolutionError: Package not installed
         """
         try:
-            import importlib.metadata
-
-            dist = importlib.metadata.distribution(self.package_name)
+            dist = metadata.distribution(self.package_name)
             # Get package location
             if dist.files:
                 # Get first file's parent to find package root
@@ -235,7 +243,7 @@ class PackageSource:
                 return package_path
             # Fallback: use locate_file with empty string
             return Path(str(dist.locate_file("")))
-        except importlib.metadata.PackageNotFoundError:
+        except metadata.PackageNotFoundError:
             raise ModuleResolutionError(
                 f"Package '{self.package_name}' not installed. Install with: uv pip install {self.package_name}"
             )
