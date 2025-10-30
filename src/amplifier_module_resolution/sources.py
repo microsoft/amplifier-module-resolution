@@ -209,6 +209,20 @@ class GitSource:
                 error_msg += f"\nStandard output:\n{result.stdout.strip()}"
             raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
 
+    @property
+    def uri(self) -> str:
+        """Reconstruct full git+ URI in standard format.
+
+        Returns:
+            Full URI like: git+https://github.com/org/repo@ref#subdirectory=path
+
+        This property is used by collection installer to store source URI in lock file.
+        """
+        git_url = f"git+{self.url}@{self.ref}"
+        if self.subdirectory:
+            git_url += f"#subdirectory={self.subdirectory}"
+        return git_url
+
     def __repr__(self) -> str:
         sub = f"#{self.subdirectory}" if self.subdirectory else ""
         return f"GitSource({self.url}@{self.ref}{sub})"
