@@ -6,6 +6,16 @@ amplifier-module-resolution provides standard implementations of amplifier-core'
 
 ---
 
+## Documentation
+
+- **[Quick Start](#quick-start)** - Get started in 5 minutes
+- **[API Reference](#api-reference)** - Complete API documentation
+- **[User Guide](docs/USER_GUIDE.md)** - Customizing module sources
+- **[Technical Specification](docs/SPECIFICATION.md)** - Resolution strategy and contracts
+- **[Design Philosophy](#design-philosophy)** - Why this is a library, not kernel
+
+---
+
 ## Installation
 
 ```bash
