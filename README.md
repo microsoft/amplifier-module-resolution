@@ -2,7 +2,7 @@
 
 **Module source resolution with pluggable strategies for Amplifier applications**
 
-amplifier-module-resolution provides standard implementations of amplifier-core's ModuleSource and ModuleSourceResolver protocols. It implements a 6-layer resolution strategy using uv for git operations, supports file/git/package sources, and integrates with settings-based overrides.
+amplifier-module-resolution provides standard implementations of amplifier-core's ModuleSource and ModuleSourceResolver protocols. It implements a 5-layer resolution strategy using uv for git operations, supports file/git/package sources, and integrates with settings-based overrides.
 
 ---
 
@@ -44,19 +44,18 @@ config = ConfigManager(paths=cli_paths)
 
 # Create standard resolver
 resolver = StandardModuleSourceResolver(
-    workspace_path=Path(".amplifier/modules"),  # Layer 2
-    settings_provider=config,                    # Layers 3-4
+    workspace_dir=Path(".amplifier/modules"),  # Layer 2
+    settings_provider=config,                   # Layers 3-4
 )
 
 # Resolve module to source
 source = resolver.resolve("provider-anthropic")
-# Uses 6-layer resolution: env → workspace → settings → profile → package
+# Uses 5-layer resolution: env → workspace → settings → profile → package
 
-# Install module
-target = Path(".amplifier/cache/modules/provider-anthropic")
-module_path = await source.install(target)
+# Resolve module path
+module_path = source.resolve()
 
-print(f"Installed to: {module_path}")
+print(f"Module at: {module_path}")
 ```
 
 ---
@@ -84,7 +83,7 @@ Different applications need different resolution strategies:
 
 **Current status**: Library provides standard implementation; apps can create custom resolvers.
 
-### Standard 6-Layer Resolution
+### Standard 5-Layer Resolution
 
 The `StandardModuleSourceResolver` implements a comprehensive fallback strategy:
 
@@ -92,10 +91,11 @@ The `StandardModuleSourceResolver` implements a comprehensive fallback strategy:
 
 1. **Environment variable**: `AMPLIFIER_MODULE_<ID>=<source>`
 2. **Workspace convention**: `.amplifier/modules/<id>/`
-3. **Project settings**: `.amplifier/settings.yaml` sources section
-4. **User settings**: `~/.amplifier/settings.yaml` sources section
-5. **Profile hint**: Source specified in profile module config
-6. **Installed package**: `amplifier-module-<id>` or `<id>` package
+3. **Settings provider**: Merges project + user settings (project takes precedence)
+4. **Profile hint**: Source specified in profile module config
+5. **Installed package**: `amplifier-module-<id>` or `<id>` package
+
+**Note**: The settings provider (layer 3) internally merges project and user settings, with project taking precedence. From the API perspective, this is a single layer that consolidates multiple configuration sources.
 
 **Example resolution**:
 
@@ -107,23 +107,22 @@ export AMPLIFIER_MODULE_PROVIDER_ANTHROPIC="file:///home/dev/custom-provider"
 mkdir -p .amplifier/modules/provider-anthropic
 # Put development code here
 
-# Layer 3: Project settings
-# .amplifier/settings.yaml
+# Layer 3: Settings provider (merges project + user, project wins)
+# .amplifier/settings.yaml (project - higher precedence)
 sources:
   provider-anthropic: git+https://github.com/team/custom-provider@main
 
-# Layer 4: User settings
-# ~/.amplifier/settings.yaml
+# ~/.amplifier/settings.yaml (user - lower precedence)
 sources:
   provider-anthropic: git+https://github.com/microsoft/amplifier-module-provider-anthropic@main
 
-# Layer 5: Profile hint
+# Layer 4: Profile hint
 # In profile.md
 providers:
   - module: provider-anthropic
     source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@main
 
-# Layer 6: Installed package (lowest precedence)
+# Layer 5: Installed package (lowest precedence)
 uv pip install amplifier-module-provider-anthropic
 ```
 
@@ -147,11 +146,13 @@ source = FileSource("../my-provider")
 # URI format
 source = FileSource("file:///home/dev/my-provider")
 
-# Install (copies directory)
-module_path = await source.install(target_dir)
+# Resolve to module path (validates exists and is directory)
+module_path = source.resolve()
 ```
 
 **Use case**: Local development, testing, custom modules.
+
+**Note**: FileSource validates the path exists and contains Python files during resolve().
 
 #### GitSource
 
@@ -160,27 +161,34 @@ Git repository via uv:
 ```python
 from amplifier_module_resolution import GitSource
 
-# From URI
+# From URI (note: subdirectory requires "subdirectory=" prefix)
 source = GitSource.from_uri(
-    "git+https://github.com/org/repo@v1.0.0#subdirectory"
+    "git+https://github.com/org/repo@v1.0.0#subdirectory=src/module"
 )
 
 # Or construct directly
 source = GitSource(
     url="https://github.com/org/repo",
     ref="v1.0.0",
-    subdirectory="subdirectory"
+    subdirectory="src/module"
 )
 
-# Install (uses uv pip install)
-module_path = await source.install(target_dir)
+# For module resolution: resolve to cached path
+module_path = source.resolve()
+
+# For collection installation: install to specific directory
+await source.install_to(target_dir)
+
+# Get full URI (useful for lock files)
+full_uri = source.uri  # Returns: git+https://github.com/org/repo@v1.0.0#subdirectory=src/module
 ```
 
 **Features**:
-- Automatic caching (uv handles this)
+- Automatic caching via uv (caches to ~/.amplifier/module-cache/)
 - Supports branches, tags, commit SHAs
 - Supports subdirectories within repos
 - Supports private repos (via git credentials)
+- Two APIs: `resolve()` for module resolution, `install_to()` for collection installation
 
 #### PackageSource
 
@@ -192,11 +200,13 @@ from amplifier_module_resolution import PackageSource
 # By package name
 source = PackageSource("amplifier-module-provider-anthropic")
 
-# Install (locates via importlib, symlinks or copies)
-module_path = await source.install(target_dir)
+# Resolve to installed package location
+module_path = source.resolve()
 ```
 
 **Use case**: Pre-installed modules, system packages, vendored modules.
+
+**Note**: Uses importlib.metadata to locate installed packages. Raises ModuleResolutionError if package not found.
 
 ## API Reference
 
@@ -213,22 +223,20 @@ class FileSource:
 
         Args:
             path: Absolute or relative path to module directory
-                  Supports file:// URI format
+                  Supports file:// URI format (removes prefix)
+                  Relative paths resolved to absolute
         """
 
-    async def install(self, target_dir: Path) -> Path:
-        """Copy module from local path to target.
+    def resolve(self) -> Path:
+        """Resolve to filesystem path.
 
-        Uses shutil.copytree for directory copying.
-
-        Args:
-            target_dir: Directory to install module into
+        Validates path exists, is a directory, and contains Python files.
 
         Returns:
-            Path to installed module (same as target_dir)
+            Absolute path to module directory (self.path)
 
         Raises:
-            InstallError: If source path doesn't exist or copy fails
+            ModuleResolutionError: If path doesn't exist, not a directory, or no Python files
         """
 ```
 
@@ -256,7 +264,7 @@ class GitSource:
     def from_uri(cls, uri: str) -> "GitSource":
         """Parse git+https://... URI format.
 
-        Format: git+https://github.com/org/repo@ref#subdirectory
+        Format: git+https://github.com/org/repo@ref#subdirectory=path
 
         Args:
             uri: Git URI string
@@ -266,26 +274,47 @@ class GitSource:
 
         Example:
             >>> source = GitSource.from_uri(
-            ...     "git+https://github.com/org/repo@v1.0.0#src/module"
+            ...     "git+https://github.com/org/repo@v1.0.0#subdirectory=src/module"
             ... )
             >>> source.url == "https://github.com/org/repo"
             >>> source.ref == "v1.0.0"
             >>> source.subdirectory == "src/module"
         """
 
-    async def install(self, target_dir: Path) -> Path:
-        """Install module from git via uv.
+    def resolve(self) -> Path:
+        """Resolve to cached git repository path.
 
-        Uses: uv pip install --target {target} {git_uri}
-
-        Args:
-            target_dir: Directory to install module into
+        Downloads repo via uv to cache (~/.amplifier/module-cache/) if not cached.
+        Returns path to cached module (including subdirectory if specified).
 
         Returns:
-            Path to installed module
+            Path to cached module directory
+
+        Raises:
+            InstallError: If git clone/download fails
+        """
+
+    async def install_to(self, target_dir: Path) -> None:
+        """Install git repository to target directory.
+
+        Used by collection installer (InstallSourceProtocol).
+        Downloads repo directly to target_dir via uv pip install.
+
+        Args:
+            target_dir: Directory to install into (will be created)
 
         Raises:
             InstallError: If git installation fails
+        """
+
+    @property
+    def uri(self) -> str:
+        """Reconstruct full git+ URI in standard format.
+
+        Returns:
+            Full URI like: git+https://github.com/org/repo@ref#subdirectory=path
+
+        Used by collection installer to store source URI in lock file.
         """
 ```
 
@@ -302,20 +331,17 @@ class PackageSource:
             package_name: Name of installed package
         """
 
-    async def install(self, target_dir: Path) -> Path:
-        """Locate installed package and link to target.
+    def resolve(self) -> Path:
+        """Resolve to installed package path.
 
-        Uses importlib to find package location.
-        Creates symlink on Unix, copy on Windows.
-
-        Args:
-            target_dir: Directory to link package into
+        Uses importlib.metadata to locate package.
+        Returns the package root directory.
 
         Returns:
-            Path to module
+            Path to installed package
 
         Raises:
-            InstallError: If package not found or not an Amplifier module
+            ModuleResolutionError: If package not installed
         """
 ```
 
@@ -333,21 +359,21 @@ class SettingsProviderProtocol(Protocol):
         """Get module source overrides from settings."""
 
 class StandardModuleSourceResolver:
-    """Standard 6-layer resolution strategy.
+    """Standard 5-layer resolution strategy.
 
     This is ONE implementation - apps can create alternatives.
     """
 
     def __init__(
         self,
-        workspace_path: Path | None = None,
+        workspace_dir: Path | None = None,
         settings_provider: SettingsProviderProtocol | None = None
     ):
         """Initialize with app-specific configuration.
 
         Args:
-            workspace_path: Optional workspace convention path (layer 2)
-            settings_provider: Optional settings provider (layers 3-4)
+            workspace_dir: Optional workspace convention path (layer 2)
+            settings_provider: Optional settings provider (layer 3)
         """
 
     def resolve(
@@ -355,15 +381,14 @@ class StandardModuleSourceResolver:
         module_id: str,
         profile_hint: str | None = None
     ) -> ModuleSource:
-        """Resolve module ID to source using 6-layer strategy.
+        """Resolve module ID to source using 5-layer strategy.
 
         Resolution order (first match wins):
         1. Environment: AMPLIFIER_MODULE_<ID>
-        2. Workspace: workspace_path/<id>/
-        3. Project settings: settings_provider (project scope)
-        4. User settings: settings_provider (user scope)
-        5. Profile hint: profile_hint parameter
-        6. Package: Find via importlib
+        2. Workspace: workspace_dir/<id>/
+        3. Settings provider: Merges project + user (project wins)
+        4. Profile hint: profile_hint parameter
+        5. Package: Find via importlib
 
         Args:
             module_id: Module identifier (e.g., "provider-anthropic")
@@ -378,7 +403,7 @@ class StandardModuleSourceResolver:
         Example:
             >>> resolver = StandardModuleSourceResolver(...)
             >>> source = resolver.resolve("provider-anthropic")
-            >>> await source.install(target_dir)
+            >>> module_path = source.resolve()
         """
 
     def resolve_with_layer(
@@ -390,14 +415,14 @@ class StandardModuleSourceResolver:
 
         Returns:
             Tuple of (source, layer_name) where layer_name is one of:
-            "env", "workspace", "project", "user", "profile", "package"
+            "env", "workspace", "settings", "profile", "package"
 
         Useful for debugging and display.
 
         Example:
             >>> source, layer = resolver.resolve_with_layer("provider-anthropic")
             >>> print(f"Resolved from: {layer}")
-            Resolved from: project
+            Resolved from: settings
         """
 ```
 
@@ -417,16 +442,15 @@ config = ConfigManager(paths=ConfigPaths(...))
 
 # Create resolver with CLI configuration
 resolver = StandardModuleSourceResolver(
-    workspace_path=Path(".amplifier/modules"),
+    workspace_dir=Path(".amplifier/modules"),
     settings_provider=config,
 )
 
-# Resolve module
+# Resolve module to source
 source = resolver.resolve("provider-anthropic")
 
-# Install to cache
-target = Path(".amplifier/cache/modules/provider-anthropic")
-module_path = await source.install(target)
+# Resolve to module path
+module_path = source.resolve()
 
 # Load module (amplifier-core handles this)
 from amplifier_core import load_module
@@ -534,8 +558,8 @@ from amplifier_module_resolution import FileSource
 from pathlib import Path
 import tempfile
 
-def test_module_installation():
-    """Test module installation with file source."""
+def test_module_resolution():
+    """Test module resolution with file source."""
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
@@ -548,19 +572,19 @@ def test_module_installation():
         # Create file source
         source = FileSource(module_src)
 
-        # Install to target
-        target = tmp_path / "installed"
-        installed = await source.install(target)
+        # Resolve to module path
+        module_path = source.resolve()
 
-        # Verify installation
-        assert (installed / "__init__.py").exists()
+        # Verify resolution
+        assert module_path == module_src.resolve()
+        assert (module_path / "__init__.py").exists()
 ```
 
 ---
 
 ## Resolution Strategies Explained
 
-### The 6-Layer Strategy (StandardModuleSourceResolver)
+### The 5-Layer Strategy (StandardModuleSourceResolver)
 
 ```python
 # Layer 1: Environment variable (developer override)
@@ -568,30 +592,27 @@ def test_module_installation():
 # Code checks: os.environ.get(f"AMPLIFIER_MODULE_{module_id.upper().replace('-', '_')}")
 
 # Layer 2: Workspace convention (local development)
-# Check: {workspace_path}/{module_id}/
+# Check: {workspace_dir}/{module_id}/
 # Example: .amplifier/modules/provider-anthropic/
 
-# Layer 3: Project settings (team overrides)
-# From: .amplifier/settings.yaml -> sources -> module_id
-# Via: settings_provider.get_module_sources()
+# Layer 3: Settings provider (merges project + user settings)
+# From: settings_provider.get_module_sources()
+# Internally: .amplifier/settings.yaml (project) overrides ~/.amplifier/settings.yaml (user)
+# Via: One API call that returns merged dict
 
-# Layer 4: User settings (user defaults)
-# From: ~/.amplifier/settings.yaml -> sources -> module_id
-# Via: settings_provider.get_module_sources()
-
-# Layer 5: Profile hint (profile-specified source)
+# Layer 4: Profile hint (profile-specified source)
 # From: profile module config -> source field
 # Example: providers[0].source
 
-# Layer 6: Installed package (system fallback)
-# Check: importlib.util.find_spec(f"amplifier_module_{module_id.replace('-', '_')}")
-# Or: importlib.util.find_spec(module_id)
+# Layer 5: Installed package (system fallback)
+# Check: importlib.metadata.distribution(f"amplifier-module-{module_id}")
+# Or: importlib.metadata.distribution(module_id)
 ```
 
 **Design principle**: Higher layers override lower layers, enabling development workflow:
 1. Develop locally (layer 2: workspace)
-2. Test with team (layer 3: project settings)
-3. Deploy with stable (layer 5: profile default)
+2. Test with team (layer 3: settings provider)
+3. Deploy with stable (layer 4: profile default)
 
 ### Alternative: 2-Layer Strategy (Simple)
 
@@ -798,7 +819,7 @@ Different resolvers use different tools:
 
 Apps can create custom resolvers without depending on this library at all - just implement the kernel protocols.
 
-### Why 6 Layers?
+### Why 5 Layers?
 
 **Question**: Why so many resolution layers?
 
@@ -808,7 +829,7 @@ Apps can create custom resolvers without depending on this library at all - just
 # Development: Use local workspace copy
 .amplifier/modules/provider-anthropic/  # Layer 2
 
-# Testing: Override in project settings
+# Testing: Override in settings (project settings win over user settings)
 # .amplifier/settings.yaml
 sources:
   provider-anthropic: git+https://github.com/team/fork@test-branch  # Layer 3
@@ -817,7 +838,7 @@ sources:
 # profile.md
 providers:
   - module: provider-anthropic
-    source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@v1.0.0  # Layer 5
+    source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@v1.0.0  # Layer 4
 
 # Quick test: Environment variable
 export AMPLIFIER_MODULE_PROVIDER_ANTHROPIC="file:///tmp/test-provider"  # Layer 1 (highest)
