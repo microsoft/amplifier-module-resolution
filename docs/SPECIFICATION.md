@@ -68,18 +68,19 @@ coordinator.mount("module-source-resolver", StandardModuleSourceResolver())
 loader = AmplifierModuleLoader(coordinator)
 ```
 
-### Resolution Order (6 Layers)
+### Resolution Order (5 Layers)
 
-StandardModuleSourceResolver checks 6 layers, first match wins:
+StandardModuleSourceResolver checks 5 layers, first match wins:
 
 ```
 Layer 1: Environment variable    AMPLIFIER_MODULE_<MODULE_ID>
 Layer 2: Workspace convention     .amplifier/modules/<module-id>/
-Layer 3: Project configuration    .amplifier/settings.yaml
-Layer 4: User configuration       ~/.amplifier/settings.yaml
-Layer 5: Profile source           profile.tools[].source field
-Layer 6: Installed package        Python package (entry points)
+Layer 3: Settings provider        Merges project + user settings (project wins)
+Layer 4: Profile source           profile.tools[].source field
+Layer 5: Installed package        Python package (entry points)
 ```
+
+**Note**: The settings provider (layer 3) internally merges project settings (`.amplifier/settings.yaml`) and user settings (`~/.amplifier/settings.yaml`), with project taking precedence. From the resolver's API perspective, this is a single layer.
 
 ### Resolution Algorithm (Contract)
 
@@ -110,19 +111,17 @@ def resolve(module_id: str, profile_source: str | dict | None = None) -> ModuleS
     if workspace_source := check_workspace(module_id):
         return workspace_source
 
-    # Layer 3: Project configuration
-    if project_source := read_yaml_source(".amplifier/settings.yaml", module_id):
-        return parse_source(project_source)
+    # Layer 3: Settings provider (merges project + user, project wins)
+    if settings_provider:
+        sources = settings_provider.get_module_sources()
+        if module_id in sources:
+            return parse_source(sources[module_id])
 
-    # Layer 4: User configuration
-    if user_source := read_yaml_source("~/.amplifier/settings.yaml", module_id):
-        return parse_source(user_source)
-
-    # Layer 5: Profile source
+    # Layer 4: Profile source
     if profile_source:
         return parse_source(profile_source)
 
-    # Layer 6: Installed package
+    # Layer 5: Installed package
     return resolve_package(module_id)
 ```
 

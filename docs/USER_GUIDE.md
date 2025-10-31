@@ -51,18 +51,17 @@ amplifier module status
 
 ## How Module Resolution Works
 
-Amplifier checks 6 places in order. First match wins.
+Amplifier checks 5 places in order. First match wins.
 
-See [SPECIFICATION.md](./SPECIFICATION.md#resolution-order-6-layers) for technical details.
+See [SPECIFICATION.md](./SPECIFICATION.md#resolution-order-5-layers) for technical details.
 
 **Quick reference:**
 
 1. **Environment variable** - Temporary override
 2. **Workspace convention** - `.amplifier/modules/` if present
-3. **Project config** - `.amplifier/settings.yaml` (project)
-4. **User config** - `~/.amplifier/settings.yaml` (personal)
-5. **Profile source** - Profile's `source:` field
-6. **Installed package** - Standard Python package
+3. **Settings** - Merges `.amplifier/settings.yaml` (project) + `~/.amplifier/settings.yaml` (user), project wins
+4. **Profile source** - Profile's `source:` field
+5. **Installed package** - Standard Python package
 
 ---
 
@@ -322,7 +321,7 @@ Warning: Multiple overrides for tool-bash:
 Using: Project (higher priority)
 ```
 
-See [Resolution Order](./SPECIFICATION.md#resolution-order-6-layers) for priority details.
+See [Resolution Order](./SPECIFICATION.md#resolution-order-5-layers) for priority details.
 
 ---
 
