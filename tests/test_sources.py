@@ -183,9 +183,13 @@ class TestGitSource:
         """Builds correct uv command."""
         source = GitSource("https://github.com/org/repo", ref="v1.0.0")
 
-        # Mock subprocess.run
-        mock_run = MagicMock()
-        monkeypatch.setattr("subprocess.run", mock_run)
+        # Mock subprocess.run in the sources module with successful return
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        mock_run = MagicMock(return_value=mock_result)
+        monkeypatch.setattr("amplifier_module_resolution.sources.subprocess.run", mock_run)
 
         target = tmp_path / "target"
         source._download_via_uv(target)
