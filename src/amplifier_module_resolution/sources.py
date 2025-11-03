@@ -258,9 +258,9 @@ class GitSource:
             import urllib.error
             import urllib.request
 
-            # Parse URL
-            url_without_git = self.url.rstrip(".git")
-            parts = url_without_git.split("github.com/")[-1].split("/")
+            # Parse URL (remove .git suffix properly, not with rstrip!)
+            url_clean = self.url[:-4] if self.url.endswith(".git") else self.url
+            parts = url_clean.split("github.com/")[-1].split("/")
             if len(parts) < 2:
                 return None
 
