@@ -7,6 +7,7 @@ Concrete implementations for various source types:
 """
 
 import hashlib
+import json
 import logging
 import subprocess
 from importlib import metadata
@@ -140,6 +141,9 @@ class GitSource:
         if not final_path.exists():
             raise InstallError(f"Subdirectory not found after download: {self.subdirectory}")
 
+        # Write cache metadata for update checking
+        self._write_cache_metadata(cache_path)
+
         return final_path
 
     async def install_to(self, target_dir: Path) -> None:
@@ -208,6 +212,49 @@ class GitSource:
             if result.stdout:
                 error_msg += f"\nStandard output:\n{result.stdout.strip()}"
             raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
+
+    def _write_cache_metadata(self, cache_path: Path) -> None:
+        """Write cache metadata for update checking.
+
+        Args:
+            cache_path: Path to cached module directory
+        """
+        from datetime import datetime
+
+        metadata = {
+            "url": self.url,
+            "ref": self.ref,
+            "sha": self._get_local_sha(cache_path),
+            "cached_at": datetime.now().isoformat(),
+            "is_mutable": self._is_mutable_ref(),
+        }
+
+        metadata_file = cache_path / ".amplifier_cache_metadata.json"
+        metadata_file.write_text(json.dumps(metadata, indent=2))
+
+    def _get_local_sha(self, cache_path: Path) -> str | None:
+        """Get SHA of cached git repository."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=cache_path, capture_output=True, text=True, timeout=2
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception as e:
+            logger.debug(f"Could not get local SHA for {cache_path}: {e}")
+        return None
+
+    def _is_mutable_ref(self) -> bool:
+        """Check if ref could change over time.
+
+        Returns:
+            True if ref is mutable (branch), False if immutable (SHA)
+        """
+        import re
+
+        # SHA: 40 hex characters (or 7+ for short SHA)
+        # Return True if NOT a SHA (i.e., is mutable)
+        return not re.match(r"^[0-9a-f]{7,40}$", self.ref)
 
     @property
     def uri(self) -> str:
