@@ -131,6 +131,14 @@ class GitSource:
             logger.debug(f"Using cached git module: {cache_path}")
             return final_path
 
+        # Get SHA from GitHub API BEFORE downloading
+        # (uv pip install doesn't create .git, can't get SHA after)
+        try:
+            current_sha = self._get_remote_sha_sync()
+        except Exception as e:
+            logger.debug(f"Could not get remote SHA for {self.url}@{self.ref}: {e}")
+            current_sha = None
+
         # Download
         logger.info(f"Downloading git module: {self.url}@{self.ref}")
         try:
@@ -141,8 +149,8 @@ class GitSource:
         if not final_path.exists():
             raise InstallError(f"Subdirectory not found after download: {self.subdirectory}")
 
-        # Write cache metadata for update checking
-        self._write_cache_metadata(cache_path)
+        # Write cache metadata for update checking (with SHA from API)
+        self._write_cache_metadata(cache_path, current_sha)
 
         return final_path
 
@@ -213,18 +221,19 @@ class GitSource:
                 error_msg += f"\nStandard output:\n{result.stdout.strip()}"
             raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
 
-    def _write_cache_metadata(self, cache_path: Path) -> None:
+    def _write_cache_metadata(self, cache_path: Path, sha: str | None) -> None:
         """Write cache metadata for update checking.
 
         Args:
             cache_path: Path to cached module directory
+            sha: Commit SHA (from GitHub API, not from downloaded files)
         """
         from datetime import datetime
 
         metadata = {
             "url": self.url,
             "ref": self.ref,
-            "sha": self._get_local_sha(cache_path),
+            "sha": sha,  # Use provided SHA from GitHub API
             "cached_at": datetime.now().isoformat(),
             "is_mutable": self._is_mutable_ref(),
         }
@@ -232,17 +241,41 @@ class GitSource:
         metadata_file = cache_path / ".amplifier_cache_metadata.json"
         metadata_file.write_text(json.dumps(metadata, indent=2))
 
-    def _get_local_sha(self, cache_path: Path) -> str | None:
-        """Get SHA of cached git repository."""
+    def _get_remote_sha_sync(self) -> str | None:
+        """Get SHA from GitHub API synchronously (for use during download).
+
+        Returns:
+            Commit SHA or None if not GitHub or API fails
+        """
+        # Only works for GitHub URLs
+        if "github.com" not in self.url:
+            return None
+
         try:
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=cache_path, capture_output=True, text=True, timeout=2
-            )
-            if result.returncode == 0:
-                return result.stdout.strip()
+            import urllib.request
+
+            # Parse URL
+            url_without_git = self.url.rstrip(".git")
+            parts = url_without_git.split("github.com/")[-1].split("/")
+            if len(parts) < 2:
+                return None
+
+            owner, repo = parts[0], parts[1]
+
+            # Call GitHub API
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{self.ref}"
+
+            request = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github.v3+json"})
+
+            with urllib.request.urlopen(request, timeout=5) as response:
+                import json as json_module
+
+                data = json_module.loads(response.read())
+                return data.get("sha")
+
         except Exception as e:
-            logger.debug(f"Could not get local SHA for {cache_path}: {e}")
-        return None
+            logger.debug(f"Could not get remote SHA for {self.url}@{self.ref}: {e}")
+            return None
 
     def _is_mutable_ref(self) -> bool:
         """Check if ref could change over time.
