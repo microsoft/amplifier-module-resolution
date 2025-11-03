@@ -244,6 +244,8 @@ class GitSource:
     def _get_remote_sha_sync(self) -> str | None:
         """Get SHA from GitHub API synchronously (for use during download).
 
+        Uses authentication if available to avoid rate limits.
+
         Returns:
             Commit SHA or None if not GitHub or API fails
         """
@@ -252,6 +254,8 @@ class GitSource:
             return None
 
         try:
+            import os
+            import urllib.error
             import urllib.request
 
             # Parse URL
@@ -262,17 +266,48 @@ class GitSource:
 
             owner, repo = parts[0], parts[1]
 
-            # Call GitHub API
+            # Call GitHub API with authentication
             api_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{self.ref}"
 
-            request = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github.v3+json"})
+            headers = {"Accept": "application/vnd.github.v3+json"}
+
+            # Add authentication if available (avoids rate limits!)
+            github_token = os.getenv("GITHUB_TOKEN")
+            if github_token:
+                headers["Authorization"] = f"Bearer {github_token}"
+            else:
+                # Try gh CLI config
+                gh_config_file = Path.home() / ".config" / "gh" / "hosts.yml"
+                if gh_config_file.exists():
+                    try:
+                        import yaml
+
+                        gh_config = yaml.safe_load(gh_config_file.read_text())
+                        token = gh_config.get("github.com", {}).get("oauth_token")
+                        if token:
+                            headers["Authorization"] = f"Bearer {token}"
+                    except Exception:
+                        pass
+
+            request = urllib.request.Request(api_url, headers=headers)
 
             with urllib.request.urlopen(request, timeout=5) as response:
                 import json as json_module
 
                 data = json_module.loads(response.read())
-                return data.get("sha")
+                sha = data.get("sha")
+                if sha:
+                    logger.debug(f"Retrieved SHA {sha[:7]} for {self.url}@{self.ref}")
+                return sha
 
+        except urllib.error.HTTPError as e:
+            if e.code == 403:
+                logger.warning(
+                    f"GitHub API rate limit exceeded for {self.url}@{self.ref}. Set GITHUB_TOKEN to avoid limits."
+                )
+            else:
+                logger.debug(f"GitHub API error for {self.url}@{self.ref}: {e}")
+            return None
         except Exception as e:
             logger.debug(f"Could not get remote SHA for {self.url}@{self.ref}: {e}")
             return None
