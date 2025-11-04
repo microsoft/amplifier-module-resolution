@@ -8,6 +8,7 @@ import pytest
 from amplifier_module_resolution import FileSource
 from amplifier_module_resolution import GitSource
 from amplifier_module_resolution import PackageSource
+from amplifier_module_resolution.exceptions import InstallError
 from amplifier_module_resolution.exceptions import ModuleResolutionError
 
 
@@ -127,10 +128,13 @@ class TestGitSource:
         source = GitSource("https://github.com/org/repo", ref="main")
         source.cache_dir = cache_dir
 
-        # Calculate actual cache key
+        # Calculate actual cache key (includes subdirectory if present)
         import hashlib
 
-        cache_key = hashlib.sha256(f"{source.url}@{source.ref}".encode()).hexdigest()[:12]
+        cache_key_input = f"{source.url}@{source.ref}"
+        if source.subdirectory:
+            cache_key_input += f"#{source.subdirectory}"
+        cache_key = hashlib.sha256(cache_key_input.encode()).hexdigest()[:12]
         cached_module = cache_dir / cache_key / "main"
         cached_module.mkdir(parents=True)
         (cached_module / "__init__.py").write_text("")
@@ -162,21 +166,27 @@ class TestGitSource:
         assert (result / "__init__.py").exists()
 
     def test_resolve_subdirectory_not_found(self, tmp_path, monkeypatch):
-        """Raises error if subdirectory doesn't exist after download."""
+        """Raises error when uv fails due to nonexistent subdirectory.
+
+        When subdirectory doesn't exist in repo, uv itself fails during download.
+        We rely on uv's error, not post-download validation.
+        """
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
 
         source = GitSource("https://github.com/org/repo", ref="main", subdirectory="nonexistent")
         monkeypatch.setattr(source, "cache_dir", cache_dir)
 
-        # Mock download but don't create subdirectory
+        # Mock uv download failure (simulates uv's error when subdirectory not in repo)
         def mock_download(target: Path):
-            target.mkdir(parents=True, exist_ok=True)
-            (target / "__init__.py").write_text("")
+            raise subprocess.CalledProcessError(
+                1, ["uv", "pip", "install"], stderr="error: The source distribution has no subdirectory `nonexistent`"
+            )
 
         monkeypatch.setattr(source, "_download_via_uv", mock_download)
+        monkeypatch.setattr(source, "_get_remote_sha_sync", lambda: "abc123")
 
-        with pytest.raises(ModuleResolutionError, match="Subdirectory not found"):
+        with pytest.raises(InstallError, match="Failed to download"):
             source.resolve()
 
     def test_download_via_uv_command(self, tmp_path, monkeypatch):
@@ -227,6 +237,81 @@ class TestGitSource:
         assert "org/repo" in result
         assert "v1.0.0" in result
         assert "src" in result
+
+    def test_subdirectory_cache_keys_unique(self):
+        """Different subdirectories must generate different cache keys.
+
+        Bug: Cache key only used url+ref, ignoring subdirectory.
+        This caused modules from same repo but different subdirectories
+        to overwrite each other in cache.
+
+        Credit: Bug identified by Paul Payne (@payneio) in PR #2
+        """
+        import hashlib
+
+        source1 = GitSource("https://github.com/org/repo", ref="main")
+        source2 = GitSource("https://github.com/org/repo", ref="main", subdirectory="modules/tool-x")
+        source3 = GitSource("https://github.com/org/repo", ref="main", subdirectory="modules/tool-y")
+
+        # Generate cache keys the way sources.py does
+        def get_cache_key(source):
+            cache_key_input = f"{source.url}@{source.ref}"
+            if source.subdirectory:
+                cache_key_input += f"#{source.subdirectory}"
+            return hashlib.sha256(cache_key_input.encode()).hexdigest()[:12]
+
+        key1 = get_cache_key(source1)
+        key2 = get_cache_key(source2)
+        key3 = get_cache_key(source3)
+
+        # All three must be unique
+        assert key1 != key2, "Collection and module must have different cache keys"
+        assert key1 != key3, "Collection and different module must have different keys"
+        assert key2 != key3, "Different modules must have different cache keys"
+
+    def test_subdirectory_resolve_path(self, tmp_path, monkeypatch):
+        """Resolved path should be cache_path, not cache_path/subdirectory.
+
+        Bug: Code appended subdirectory to cache_path, but uv installs
+        content FROM subdirectory TO target directly (doesn't recreate structure).
+
+        Expected behavior:
+        - uv installs FROM subdirectory TO cache_path
+        - resolve() returns cache_path (not cache_path/subdirectory)
+
+        Credit: Bug identified by Paul Payne (@payneio) in PR #2
+        """
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+
+        source = GitSource("https://github.com/org/repo", ref="main", subdirectory="modules/tool-x")
+        monkeypatch.setattr(source, "cache_dir", cache_dir)
+
+        # Mock uv download - simulates uv's actual behavior
+        # uv installs FROM subdirectory TO target (doesn't create subdirectory structure)
+        def mock_download(target: Path):
+            target.mkdir(parents=True, exist_ok=True)
+            # Create module files directly at target (NOT at target/modules/tool-x/)
+            (target / "__init__.py").write_text("")
+            (target / "core.py").write_text("")
+
+        monkeypatch.setattr(source, "_download_via_uv", mock_download)
+        monkeypatch.setattr(source, "_get_remote_sha_sync", lambda: "abc123def")
+        monkeypatch.setattr(source, "_write_cache_metadata", lambda path, sha: None)
+
+        result = source.resolve()
+
+        # Result should be cache_path, NOT cache_path/subdirectory
+        import hashlib
+
+        cache_key_input = f"{source.url}@{source.ref}"
+        if source.subdirectory:
+            cache_key_input += f"#{source.subdirectory}"
+        cache_key = hashlib.sha256(cache_key_input.encode()).hexdigest()[:12]
+        expected_path = cache_dir / cache_key / "main"
+
+        assert result == expected_path, "Should return cache_path directly, not append subdirectory"
+        assert (result / "__init__.py").exists(), "Module files should exist at returned path"
 
 
 class TestPackageSource:

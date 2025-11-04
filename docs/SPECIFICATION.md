@@ -255,9 +255,34 @@ source:
 
 **Behavior:**
 - Downloads to `~/.amplifier/module-cache/<hash>/<ref>/`
-- Cache key: `hash(url + ref)`
+- Cache key: `hash(url + ref + subdirectory)` - ensures unique cache per module
 - Cache checked before download
 - Uses `uv pip install --target` for download
+
+**Subdirectory Handling:**
+
+When `#subdirectory=path` is specified, `uv` installs content **FROM** subdirectory **TO** target directory directly. The subdirectory structure is **not** recreated at the target.
+
+Example:
+```bash
+# Command
+uv pip install --target ~/.amplifier/module-cache/abc123/main \
+  "git+https://github.com/org/repo@main#subdirectory=modules/tool-x"
+
+# Content installed at: ~/.amplifier/module-cache/abc123/main/
+# NOT at:              ~/.amplifier/module-cache/abc123/main/modules/tool-x/
+```
+
+This enables collection + module coexistence patterns where both live in the same repository:
+```yaml
+# Collection root
+source: git+https://github.com/org/collection@main
+
+# Module from same repo, different subdirectory
+source: git+https://github.com/org/collection@main#subdirectory=modules/tool-x
+```
+
+Each gets a unique cache key and cache directory, preventing overwrites.
 
 **Caching:**
 - Location: `~/.amplifier/module-cache/`
@@ -651,7 +676,7 @@ See [amplifier-core protocols](https://github.com/microsoft/amplifier-core/blob/
 
 **Location:** `~/.amplifier/module-cache/` (user-owned)
 **Permissions:** User read/write only
-**Isolation:** Each URL+ref gets unique directory
+**Isolation:** Each URL+ref+subdirectory combination gets unique cache directory
 
 ---
 

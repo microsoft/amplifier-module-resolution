@@ -119,17 +119,17 @@ class GitSource:
         Raises:
             InstallError: Git clone failed
         """
-        # Generate cache key
-        cache_key = hashlib.sha256(f"{self.url}@{self.ref}".encode()).hexdigest()[:12]
+        # Generate cache key (includes subdirectory for unique isolation)
+        cache_key_input = f"{self.url}@{self.ref}"
+        if self.subdirectory:
+            cache_key_input += f"#{self.subdirectory}"
+        cache_key = hashlib.sha256(cache_key_input.encode()).hexdigest()[:12]
         cache_path = self.cache_dir / cache_key / self.ref
-
-        # Add subdirectory if specified
-        final_path = cache_path / self.subdirectory if self.subdirectory else cache_path
 
         # Check cache
         if cache_path.exists() and self._is_valid_cache(cache_path):
             logger.debug(f"Using cached git module: {cache_path}")
-            return final_path
+            return cache_path
 
         # Get SHA from GitHub API BEFORE downloading
         # (uv pip install doesn't create .git, can't get SHA after)
@@ -146,13 +146,13 @@ class GitSource:
         except subprocess.CalledProcessError as e:
             raise InstallError(f"Failed to download {self.url}@{self.ref}: {e}")
 
-        if not final_path.exists():
-            raise InstallError(f"Subdirectory not found after download: {self.subdirectory}")
+        if not cache_path.exists():
+            raise InstallError(f"Module not found after download from {self.url}@{self.ref}")
 
         # Write cache metadata for update checking (with SHA from API)
         self._write_cache_metadata(cache_path, current_sha)
 
-        return final_path
+        return cache_path
 
     async def install_to(self, target_dir: Path) -> None:
         """Install git repository to target directory (for InstallSourceProtocol).

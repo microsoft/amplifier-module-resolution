@@ -165,10 +165,13 @@ full_uri = source.uri  # Returns: git+https://github.com/org/repo@v1.0.0#subdire
 
 **Features**:
 - Automatic caching via uv (caches to ~/.amplifier/module-cache/)
+- Unique cache key per url+ref+subdirectory (prevents cache collisions)
 - Supports branches, tags, commit SHAs
-- Supports subdirectories within repos
+- Supports subdirectories within repos (uv installs FROM subdirectory TO target)
 - Supports private repos (via git credentials)
 - Two APIs: `resolve()` for module resolution, `install_to()` for collection installation
+
+**Subdirectory Note**: When `#subdirectory=path` is specified, uv installs content FROM that subdirectory TO the target directory directly (doesn't recreate subdirectory structure). This enables collection + module coexistence patterns where both live in same repo with different subdirectories.
 
 #### PackageSource
 
@@ -265,7 +268,9 @@ class GitSource:
         """Resolve to cached git repository path.
 
         Downloads repo via uv to cache (~/.amplifier/module-cache/) if not cached.
-        Returns path to cached module (including subdirectory if specified).
+        When subdirectory is specified, uv installs FROM subdirectory TO cache path.
+
+        Cache key includes url+ref+subdirectory for unique isolation per module.
 
         Returns:
             Path to cached module directory
