@@ -347,5 +347,3 @@ See [Resolution Order](./SPECIFICATION.md#resolution-order-5-layers) for priorit
 
 - [SPECIFICATION.md](./SPECIFICATION.md) - Technical specification
 - **[Profile Authoring](https://github.com/microsoft/amplifier-profiles/blob/main/docs/PROFILE_AUTHORING.md)** - Creating profiles
-- **[Module Development](https://github.com/microsoft/amplifier-dev/blob/main/docs/MODULE_DEVELOPMENT.md)** - Developing modules
-- **[User Onboarding](https://github.com/microsoft/amplifier-dev/blob/main/docs/USER_ONBOARDING.md#quick-reference)** - General configuration

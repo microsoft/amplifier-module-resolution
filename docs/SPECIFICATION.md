@@ -12,7 +12,6 @@ This document describes the **StandardModuleSourceResolver** and app-layer conve
 
 For usage guides, see:
 - [USER_GUIDE.md](./USER_GUIDE.md) - User guide for customizing module sources
-- **[Module Development](https://github.com/microsoft/amplifier-dev/blob/main/docs/MODULE_DEVELOPMENT.md)** - Developer guide
 
 ---
 
@@ -20,7 +19,7 @@ For usage guides, see:
 
 ### Purpose
 
-The reference implementation provides a **6-layer module resolution strategy** supporting:
+The reference implementation provides a **5-layer module resolution strategy** supporting:
 - Local development workflows
 - Git-based remote modules
 - Workspace conventions
@@ -29,9 +28,9 @@ The reference implementation provides a **6-layer module resolution strategy** s
 
 ### Architecture: Kernel + Reference Policy
 
-Following **[Kernel Philosophy](https://github.com/microsoft/amplifier-dev/blob/main/docs/context/KERNEL_PHILOSOPHY.md)**:
+Following Amplifier's kernel philosophy (mechanism not policy):
 - **Mechanism in kernel**: Module loading/mounting, protocol definitions
-- **Policy in reference impl**: StandardModuleSourceResolver with 6-layer fallback
+- **Policy in reference impl**: StandardModuleSourceResolver with 5-layer fallback
 - **Convention over configuration**: Workspace convention is optional
 - **Text-first**: YAML configs, string URIs, readable logs
 - **Non-interference**: Failures degrade gracefully to next layer
@@ -46,12 +45,12 @@ Following **[Kernel Philosophy](https://github.com/microsoft/amplifier-dev/blob/
 
 **This is app-layer policy, not kernel.**
 
-The kernel provides protocols ([MODULE_SOURCE_PROTOCOL.md](https://github.com/microsoft/amplifier-core/blob/main/docs/MODULE_SOURCE_PROTOCOL.md)). This document describes the **reference implementation** shipped with amplifier-app-cli.
+The kernel provides protocols ([MODULE_SOURCE_PROTOCOL.md](https://github.com/microsoft/amplifier-core/blob/main/docs/MODULE_SOURCE_PROTOCOL.md)). This document describes the **reference implementation** provided by this library.
 
 **Architecture:**
 
 1. **StandardModuleSourceResolver** - Reference policy (app-layer)
-   - WHERE to find modules (6-layer fallback)
+   - WHERE to find modules (5-layer fallback)
    - Can be swapped for custom strategies
    - Covers 99% of use cases
 
@@ -73,11 +72,30 @@ loader = AmplifierModuleLoader(coordinator)
 StandardModuleSourceResolver checks 5 layers, first match wins:
 
 ```
-Layer 1: Environment variable    AMPLIFIER_MODULE_<MODULE_ID>
-Layer 2: Workspace convention     .amplifier/modules/<module-id>/
-Layer 3: Settings provider        Merges project + user settings (project wins)
-Layer 4: Profile source           profile.tools[].source field
-Layer 5: Installed package        Python package (entry points)
+┌──────────────────────────────────────────────────────────┐
+│ 1. ENVIRONMENT VARIABLE (highest precedence)             │
+│    AMPLIFIER_MODULE_<MODULE_ID>=<source-uri>             │
+│    → Temporary overrides, debugging, CI/CD               │
+├──────────────────────────────────────────────────────────┤
+│ 2. WORKSPACE CONVENTION                                   │
+│    .amplifier/modules/<module-id>/                       │
+│    → Local development, active module work               │
+├──────────────────────────────────────────────────────────┤
+│ 3. SETTINGS PROVIDER (merges project + user)             │
+│    .amplifier/settings.yaml (project wins)               │
+│    ~/.amplifier/settings.yaml (user fallback)            │
+│    → Project-wide or user-global overrides               │
+├──────────────────────────────────────────────────────────┤
+│ 4. PROFILE HINT                                           │
+│    profile.tools[].source field                          │
+│    → Profile-specified default sources                   │
+├──────────────────────────────────────────────────────────┤
+│ 5. INSTALLED PACKAGE (lowest precedence)                 │
+│    importlib.metadata lookup                             │
+│    → Pre-installed standard modules, fallback            │
+└──────────────────────────────────────────────────────────┘
+
+First match wins - resolution stops at first successful layer.
 ```
 
 **Note**: The settings provider (layer 3) internally merges project settings (`.amplifier/settings.yaml`) and user settings (`~/.amplifier/settings.yaml`), with project taking precedence. From the resolver's API perspective, this is a single layer.
@@ -125,7 +143,7 @@ def resolve(module_id: str, profile_source: str | dict | None = None) -> ModuleS
     return resolve_package(module_id)
 ```
 
-**Actual implementation:** *TODO: Link to amplifier-core/amplifier_core/module_sources.py once implemented*
+**Actual implementation**: See `src/amplifier_module_resolution/resolvers.py:52-92`
 
 ---
 
@@ -420,7 +438,7 @@ def is_empty_submodule(path: Path) -> bool:
     return (path / ".git").exists() and not any(path.glob("**/*.py"))
 ```
 
-**Actual implementation:** *TODO: Link once implemented*
+**Actual implementation**: See `src/amplifier_module_resolution/resolvers.py:132-172`
 
 ---
 
@@ -514,7 +532,7 @@ def resolve_package(module_id: str) -> PackageSource:
 
 **amplifier module status:**
 
-See [MODULE_SOURCES.md](./MODULE_SOURCES.md#checking-module-sources) for full output format.
+See [USER_GUIDE.md](./USER_GUIDE.md) for CLI command examples and output formats.
 
 **amplifier profile show:**
 
@@ -680,27 +698,9 @@ See [amplifier-core protocols](https://github.com/microsoft/amplifier-core/blob/
 
 ---
 
-## Implementation Reference
-
-**Core source resolution:**
-- *TODO: amplifier-core/amplifier_core/module_sources.py*
-
-**CLI commands:**
-- *TODO: amplifier-app-cli/amplifier_app_cli/module_commands.py*
-
-**Loader integration:**
-- *TODO: amplifier-core/amplifier_core/module_loader.py updates*
-
-**Profile schema:**
-- *TODO: amplifier-app-cli/amplifier_app_cli/profiles/schema.py updates*
-
-See [MODULE_SOURCING_IMPLEMENTATION_PLAN.md](../ai_working/MODULE_SOURCING_IMPLEMENTATION_PLAN.md) for implementation roadmap.
-
 ---
 
 ## Related Documentation
 
-- [MODULE_SOURCES.md](./MODULE_SOURCES.md) - User guide for customizing sources
-- [MODULE_DEVELOPMENT.md](./MODULE_DEVELOPMENT.md) - Developer workflows
-- [KERNEL_PHILOSOPHY.md](./context/KERNEL_PHILOSOPHY.md) - Architecture principles
-- [Implementation Plan](../ai_working/MODULE_SOURCING_IMPLEMENTATION_PLAN.md) - Build roadmap
+- [USER_GUIDE.md](./USER_GUIDE.md) - User guide for customizing module sources
+- **[Module Source Protocol](https://github.com/microsoft/amplifier-core/blob/main/docs/MODULE_SOURCE_PROTOCOL.md)** - Kernel contracts

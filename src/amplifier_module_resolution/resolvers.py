@@ -25,12 +25,12 @@ class SettingsProviderProtocol(Protocol):
 
 
 class StandardModuleSourceResolver:
-    """Standard 6-layer resolution strategy.
+    """Standard 5-layer resolution strategy.
 
     Resolution order (first match wins):
     1. Environment variable (AMPLIFIER_MODULE_<ID>)
     2. Workspace convention (workspace_dir/<id>/)
-    3. Settings provider (layers 3-4 collapsed)
+    3. Settings provider (merges project + user settings)
     4. Profile hint
     5. Installed package
     """
@@ -50,7 +50,7 @@ class StandardModuleSourceResolver:
         self.settings_provider = settings_provider
 
     def resolve(self, module_id: str, profile_hint: str | None = None):
-        """Resolve module through 6-layer fallback."""
+        """Resolve module through 5-layer fallback."""
         source, _layer = self.resolve_with_layer(module_id, profile_hint)
         return source
 

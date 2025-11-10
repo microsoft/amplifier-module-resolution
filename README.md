@@ -95,7 +95,34 @@ Different applications need different resolution strategies:
 
 ### Standard 5-Layer Resolution
 
-The `StandardModuleSourceResolver` implements a comprehensive fallback strategy.
+The `StandardModuleSourceResolver` implements a comprehensive fallback strategy:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 1. ENVIRONMENT VARIABLE (highest precedence)             │
+│    AMPLIFIER_MODULE_<ID>=<source-uri>                    │
+│    → Temporary overrides, debugging                      │
+├──────────────────────────────────────────────────────────┤
+│ 2. WORKSPACE CONVENTION                                   │
+│    .amplifier/modules/<module-id>/                       │
+│    → Local development, active module work               │
+├──────────────────────────────────────────────────────────┤
+│ 3. SETTINGS PROVIDER                                      │
+│    .amplifier/settings.yaml (project)                    │
+│    ~/.amplifier/settings.yaml (user)                     │
+│    → Project-wide or user-global overrides               │
+├──────────────────────────────────────────────────────────┤
+│ 4. PROFILE HINT                                           │
+│    profile.tools[].source field                          │
+│    → Profile-specified default sources                   │
+├──────────────────────────────────────────────────────────┤
+│ 5. INSTALLED PACKAGE (lowest precedence)                 │
+│    importlib.metadata lookup                             │
+│    → Pre-installed standard modules                      │
+└──────────────────────────────────────────────────────────┘
+
+First match wins - resolution stops at first layer that succeeds.
+```
 
 **→ See [Resolution Strategy Specification](docs/SPECIFICATION.md#resolution-order-5-layers) for complete technical details.**
 
