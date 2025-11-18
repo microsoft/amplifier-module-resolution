@@ -9,7 +9,10 @@ Concrete implementations for various source types:
 import hashlib
 import json
 import logging
+import os
 import subprocess
+import urllib.error
+import urllib.request
 from importlib import metadata
 from pathlib import Path
 
@@ -254,10 +257,6 @@ class GitSource:
             return None
 
         try:
-            import os
-            import urllib.error
-            import urllib.request
-
             # Parse URL (remove .git suffix properly, not with rstrip!)
             url_clean = self.url[:-4] if self.url.endswith(".git") else self.url
             parts = url_clean.split("github.com/")[-1].split("/")
@@ -292,9 +291,7 @@ class GitSource:
             request = urllib.request.Request(api_url, headers=headers)
 
             with urllib.request.urlopen(request, timeout=5) as response:
-                import json as json_module
-
-                data = json_module.loads(response.read())
+                data = json.loads(response.read())
                 sha = data.get("sha")
                 if sha:
                     logger.debug(f"Retrieved SHA {sha[:7]} for {self.url}@{self.ref}")
