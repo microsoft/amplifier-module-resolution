@@ -30,7 +30,7 @@ The reference implementation provides a **5-layer module resolution strategy** s
 
 Following Amplifier's kernel philosophy (mechanism not policy):
 - **Mechanism in kernel**: Module loading/mounting, protocol definitions
-- **Policy in reference impl**: StandardModuleSourceResolver with 5-layer fallback
+- **Policy in reference impl**: StandardModuleSourceResolver with 6-layer fallback
 - **Convention over configuration**: Workspace convention is optional
 - **Text-first**: YAML configs, string URIs, readable logs
 - **Non-interference**: Failures degrade gracefully to next layer
@@ -135,11 +135,17 @@ def resolve(module_id: str, profile_source: str | dict | None = None) -> ModuleS
         if module_id in sources:
             return parse_source(sources[module_id])
 
-    # Layer 4: Profile source
+    # Layer 4: Collection modules (registered via installed collections)
+    if collection_provider:
+        collection_modules = collection_provider.get_collection_modules()
+        if module_id in collection_modules:
+            return FileSource(collection_modules[module_id])
+
+    # Layer 5: Profile source
     if profile_source:
         return parse_source(profile_source)
 
-    # Layer 5: Installed package
+    # Layer 6: Installed package
     return resolve_package(module_id)
 ```
 

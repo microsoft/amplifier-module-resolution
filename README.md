@@ -395,14 +395,15 @@ class StandardModuleSourceResolver:
         module_id: str,
         profile_hint: str | None = None
     ) -> ModuleSource:
-        """Resolve module ID to source using 5-layer strategy.
+        """Resolve module ID to source using 6-layer strategy.
 
         Resolution order (first match wins):
         1. Environment: AMPLIFIER_MODULE_<ID>
         2. Workspace: workspace_dir/<id>/
         3. Settings provider: Merges project + user (project wins)
-        4. Profile hint: profile_hint parameter
-        5. Package: Find via importlib
+        4. Collection modules: Registered via installed collections
+        5. Profile hint: profile_hint parameter
+        6. Package: Find via importlib
 
         Args:
             module_id: Module identifier (e.g., "provider-anthropic")
@@ -429,7 +430,7 @@ class StandardModuleSourceResolver:
 
         Returns:
             Tuple of (source, layer_name) where layer_name is one of:
-            "env", "workspace", "settings", "profile", "package"
+            "env", "workspace", "settings", "collection", "profile", "package"
 
         Useful for debugging and display.
 

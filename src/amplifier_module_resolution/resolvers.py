@@ -24,33 +24,49 @@ class SettingsProviderProtocol(Protocol):
         ...
 
 
+class CollectionModuleProviderProtocol(Protocol):
+    """Interface for collection module lookup."""
+
+    def get_collection_modules(self) -> dict[str, str]:
+        """Get module_id -> absolute_path mappings from installed collections.
+
+        Returns:
+            Dict mapping module IDs to absolute filesystem paths
+        """
+        ...
+
+
 class StandardModuleSourceResolver:
-    """Standard 5-layer resolution strategy.
+    """Standard 6-layer resolution strategy.
 
     Resolution order (first match wins):
     1. Environment variable (AMPLIFIER_MODULE_<ID>)
     2. Workspace convention (workspace_dir/<id>/)
     3. Settings provider (merges project + user settings)
-    4. Profile hint
-    5. Installed package
+    4. Collection modules (registered via installed collections)
+    5. Profile hint
+    6. Installed package
     """
 
     def __init__(
         self,
         workspace_dir: Path | None = None,
         settings_provider: SettingsProviderProtocol | None = None,
+        collection_provider: CollectionModuleProviderProtocol | None = None,
     ):
         """Initialize resolver with optional configuration.
 
         Args:
             workspace_dir: Optional workspace directory path (layer 2)
             settings_provider: Optional settings provider (layer 3)
+            collection_provider: Optional collection module provider (layer 4)
         """
         self.workspace_dir = workspace_dir
         self.settings_provider = settings_provider
+        self.collection_provider = collection_provider
 
     def resolve(self, module_id: str, profile_hint: str | None = None):
-        """Resolve module through 5-layer fallback."""
+        """Resolve module through 6-layer fallback."""
         source, _layer = self.resolve_with_layer(module_id, profile_hint)
         return source
 
@@ -59,7 +75,7 @@ class StandardModuleSourceResolver:
 
         Returns:
             Tuple of (source, layer_name)
-            layer_name is one of: env, workspace, settings, profile, package
+            layer_name is one of: env, workspace, settings, collection, profile, package
         """
         # Layer 1: Environment variable
         env_key = f"AMPLIFIER_MODULE_{module_id.upper().replace('-', '_')}"
@@ -82,12 +98,20 @@ class StandardModuleSourceResolver:
                     "settings",
                 )
 
-        # Layer 4: Profile hint
+        # Layer 4: Collection modules (registered via installed collections)
+        if self.collection_provider:
+            collection_modules = self.collection_provider.get_collection_modules()
+            if module_id in collection_modules:
+                module_path = Path(collection_modules[module_id])
+                logger.debug(f"[module:resolve] {module_id} -> collection ({module_path})")
+                return (FileSource(module_path), "collection")
+
+        # Layer 5: Profile hint
         if profile_hint:
             logger.debug(f"[module:resolve] {module_id} -> profile")
             return (self._parse_source(profile_hint, module_id), "profile")
 
-        # Layer 5: Installed package (fallback)
+        # Layer 6: Installed package (fallback)
         logger.debug(f"[module:resolve] {module_id} -> package")
         return (self._resolve_package(module_id), "package")
 
@@ -211,12 +235,14 @@ class StandardModuleSourceResolver:
             f"  1. Environment: AMPLIFIER_MODULE_{module_id.upper().replace('-', '_')} (not set)\n"
             f"  2. Workspace: {self.workspace_dir / module_id if self.workspace_dir else 'N/A'} (not found)\n"
             f"  3. Settings: (no entry)\n"
-            f"  4. Profile: (no source specified)\n"
-            f"  5. Package: Tried '{module_id}' and '{convention_name}' (neither installed)\n\n"
+            f"  4. Collections: (no registered module)\n"
+            f"  5. Profile: (no source specified)\n"
+            f"  6. Package: Tried '{module_id}' and '{convention_name}' (neither installed)\n\n"
             f"Suggestions:\n"
             f"  - Add source to profile: source: git+https://...\n"
             f"  - Add source override to settings\n"
-            f"  - Install package: uv pip install <package-name>"
+            f"  - Install package: uv pip install <package-name>\n"
+            f"  - Install collection with module: amplifier collection add <collection-url>"
         )
 
     def __repr__(self) -> str:
