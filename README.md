@@ -188,6 +188,9 @@ await source.install_to(target_dir)
 
 # Get full URI (useful for lock files)
 full_uri = source.uri  # Returns: git+https://github.com/org/repo@v1.0.0#subdirectory=src/module
+
+# Get commit SHA (useful for lock files and update tracking)
+commit = source.commit_sha  # Returns: full 40-char commit SHA from GitHub
 ```
 
 **Features**:
@@ -196,6 +199,7 @@ full_uri = source.uri  # Returns: git+https://github.com/org/repo@v1.0.0#subdire
 - Supports branches, tags, commit SHAs
 - Supports subdirectories within repos (uv installs FROM subdirectory TO target)
 - Supports private repos (via git credentials)
+- Automatic SHA retrieval from GitHub for update tracking
 - Two APIs: `resolve()` for module resolution, `install_to()` for collection installation
 
 **Subdirectory Note**: When `#subdirectory=path` is specified, uv installs content FROM that subdirectory TO the target directory directly (doesn't recreate subdirectory structure). This enables collection + module coexistence patterns where both live in same repo with different subdirectories.

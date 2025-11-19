@@ -76,6 +76,7 @@ class GitSource:
         self.ref = ref
         self.subdirectory = subdirectory
         self.cache_dir = Path.home() / ".amplifier" / "module-cache"
+        self._cached_commit_sha: str | None = None  # Cache for commit_sha property
 
     @classmethod
     def from_uri(cls, uri: str) -> "GitSource":
@@ -334,6 +335,22 @@ class GitSource:
         if self.subdirectory:
             git_url += f"#subdirectory={self.subdirectory}"
         return git_url
+
+    @property
+    def commit_sha(self) -> str | None:
+        """Get commit SHA from GitHub (cached after first retrieval).
+
+        Returns:
+            Full 40-char commit SHA, or None if not GitHub or retrieval fails
+
+        This property is used by collection installer to store commit in lock file
+        for update tracking.
+
+        Note: Result is cached - subsequent calls return same value without re-fetching.
+        """
+        if self._cached_commit_sha is None:
+            self._cached_commit_sha = self._get_remote_sha_sync()
+        return self._cached_commit_sha
 
     def __repr__(self) -> str:
         sub = f"#{self.subdirectory}" if self.subdirectory else ""
