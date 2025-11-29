@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import urllib.error
 import urllib.request
@@ -162,6 +163,7 @@ class GitSource:
         """Install git repository to target directory (for InstallSourceProtocol).
 
         Used by collection installer. Downloads repo directly to target_dir.
+        Cleans up partial installs on failure to prevent orphaned directories.
 
         Args:
             target_dir: Directory to install into (will be created)
@@ -174,6 +176,10 @@ class GitSource:
         try:
             self._download_via_uv(target_dir)
         except subprocess.CalledProcessError as e:
+            # Clean up partial install - uv may have created the directory before failing
+            if target_dir.exists():
+                logger.debug(f"Cleaning up partial install at {target_dir}")
+                shutil.rmtree(target_dir)
             raise InstallError(f"Failed to install {self.url}@{self.ref} to {target_dir}: {e}")
 
         # Verify installation
