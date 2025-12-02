@@ -79,6 +79,51 @@ class GitSource:
         self.cache_dir = Path.home() / ".amplifier" / "module-cache"
         self._cached_commit_sha: str | None = None  # Cache for commit_sha property
 
+    def _get_effective_url(self) -> str:
+        """Get the effective URL, applying shadow environment rewriting if configured.
+
+        When AMPLIFIER_GIT_HOST is set, rewrites GitHub URLs to use the shadow git server.
+        This enables testing remote installs in isolated shadow environments.
+
+        Example:
+            Original: https://github.com/microsoft/amplifier-module-provider-vllm
+            With AMPLIFIER_GIT_HOST=http://gitea:3000:
+            Rewritten: http://gitea:3000/amplifier/amplifier-module-provider-vllm
+
+        Returns:
+            The URL to use for git operations (original or rewritten)
+        """
+        shadow_host = os.getenv("AMPLIFIER_GIT_HOST")
+        if not shadow_host:
+            return self.url
+
+        # Only rewrite GitHub URLs
+        if "github.com" not in self.url:
+            return self.url
+
+        # Parse the GitHub URL to extract org/repo
+        # Handles: https://github.com/org/repo or https://github.com/org/repo.git
+        url_clean = self.url
+        if url_clean.endswith(".git"):
+            url_clean = url_clean[:-4]
+
+        parts = url_clean.split("github.com/")
+        if len(parts) != 2:
+            return self.url
+
+        path_parts = parts[1].split("/")
+        if len(path_parts) < 2:
+            return self.url
+
+        repo = path_parts[1]
+
+        # In shadow environments, all repos are under the "amplifier" org
+        # Rewrite: github.com/microsoft/amplifier-foo → gitea:3000/amplifier/amplifier-foo
+        shadow_url = f"{shadow_host.rstrip('/')}/amplifier/{repo}"
+
+        logger.debug(f"Shadow URL rewrite: {self.url} → {shadow_url}")
+        return shadow_url
+
     @classmethod
     def from_uri(cls, uri: str) -> "GitSource":
         """Parse git+https://... URI into GitSource.
@@ -203,8 +248,9 @@ class GitSource:
         """
         target.parent.mkdir(parents=True, exist_ok=True)
 
-        # Build git URL
-        git_url = f"git+{self.url}@{self.ref}"
+        # Build git URL (using effective URL which may be rewritten for shadow environments)
+        effective_url = self._get_effective_url()
+        git_url = f"git+{effective_url}@{self.ref}"
         if self.subdirectory:
             git_url += f"#subdirectory={self.subdirectory}"
 
