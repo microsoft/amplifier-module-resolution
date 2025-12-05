@@ -41,7 +41,7 @@ class StandardModuleSourceResolver:
 
     Resolution order (first match wins):
     1. Environment variable (AMPLIFIER_MODULE_<ID>)
-    2. Workspace convention (workspace_dir/<id>/)
+    2. Workspace convention (workspace_dirs/<id>/)
     3. Settings provider (merges project + user settings)
     4. Collection modules (registered via installed collections)
     5. Profile hint
@@ -50,18 +50,27 @@ class StandardModuleSourceResolver:
 
     def __init__(
         self,
-        workspace_dir: Path | None = None,
+        workspace_dir: Path | list[Path] | None = None,
         settings_provider: SettingsProviderProtocol | None = None,
         collection_provider: CollectionModuleProviderProtocol | None = None,
     ):
         """Initialize resolver with optional configuration.
 
         Args:
-            workspace_dir: Optional workspace directory path (layer 2)
+            workspace_dir: Optional workspace directory path(s) (layer 2).
+                          Can be a single Path or a list of Paths to search in order.
             settings_provider: Optional settings provider (layer 3)
             collection_provider: Optional collection module provider (layer 4)
         """
-        self.workspace_dir = workspace_dir
+        # Normalize workspace_dir to a list for consistent handling
+        if workspace_dir is None:
+            self.workspace_dirs: list[Path] = []
+        elif isinstance(workspace_dir, list):
+            self.workspace_dirs = workspace_dir
+        else:
+            self.workspace_dirs = [workspace_dir]
+        # Keep workspace_dir for backwards compatibility (first dir or None)
+        self.workspace_dir = self.workspace_dirs[0] if self.workspace_dirs else None
         self.settings_provider = settings_provider
         self.collection_provider = collection_provider
 
@@ -83,8 +92,8 @@ class StandardModuleSourceResolver:
             logger.debug(f"[module:resolve] {module_id} -> env var ({env_value})")
             return (self._parse_source(env_value, module_id), "env")
 
-        # Layer 2: Workspace convention
-        if self.workspace_dir and (workspace_source := self._check_workspace(module_id)):
+        # Layer 2: Workspace convention (search all workspace directories)
+        if self.workspace_dirs and (workspace_source := self._check_workspace(module_id)):
             logger.debug(f"[module:resolve] {module_id} -> workspace")
             return (workspace_source, "workspace")
 
@@ -156,31 +165,37 @@ class StandardModuleSourceResolver:
     def _check_workspace(self, module_id: str) -> FileSource | None:
         """Check workspace convention for module.
 
+        Searches through all workspace directories in order.
+
         Args:
-            module_id: Module identifier
+            module_id: Module identifier (exact name)
 
         Returns:
             FileSource if found and valid, None otherwise
         """
-        if not self.workspace_dir:
+        if not self.workspace_dirs:
             return None
 
-        workspace_path = self.workspace_dir / module_id
+        # Search through all workspace directories in order
+        for workspace_dir in self.workspace_dirs:
+            workspace_path = workspace_dir / module_id
 
-        if not workspace_path.exists():
-            return None
+            if not workspace_path.exists():
+                continue
 
-        # Check for empty submodule (has .git but no code)
-        if self._is_empty_submodule(workspace_path):
-            logger.debug(f"Module {module_id} workspace dir is empty submodule, skipping")
-            return None
+            # Check for empty submodule (has .git but no code)
+            if self._is_empty_submodule(workspace_path):
+                logger.debug(f"Module {module_id} workspace dir is empty submodule, skipping")
+                continue
 
-        # Check if valid module
-        if not any(workspace_path.glob("**/*.py")):
-            logger.warning(f"Module {module_id} in workspace but contains no Python files, skipping")
-            return None
+            # Check if valid module
+            if not any(workspace_path.glob("**/*.py")):
+                logger.warning(f"Module {module_id} in workspace but contains no Python files, skipping")
+                continue
 
-        return FileSource(workspace_path)
+            return FileSource(workspace_path)
+
+        return None
 
     def _is_empty_submodule(self, path: Path) -> bool:
         """Check if directory is uninitialized git submodule.
@@ -228,12 +243,18 @@ class StandardModuleSourceResolver:
         except importlib.metadata.PackageNotFoundError:
             pass
 
-        # Both failed
+        # Both failed - build workspace message
+        if self.workspace_dirs:
+            workspace_paths = [f"{ws_dir}/{module_id}" for ws_dir in self.workspace_dirs]
+            workspace_msg = ", ".join(workspace_paths) + " (none found)"
+        else:
+            workspace_msg = "N/A"
+
         raise ModuleResolutionError(
             f"Module '{module_id}' not found\n\n"
             f"Resolution attempted:\n"
             f"  1. Environment: AMPLIFIER_MODULE_{module_id.upper().replace('-', '_')} (not set)\n"
-            f"  2. Workspace: {self.workspace_dir / module_id if self.workspace_dir else 'N/A'} (not found)\n"
+            f"  2. Workspace: {workspace_msg}\n"
             f"  3. Settings: (no entry)\n"
             f"  4. Collections: (no registered module)\n"
             f"  5. Profile: (no source specified)\n"
@@ -246,4 +267,4 @@ class StandardModuleSourceResolver:
         )
 
     def __repr__(self) -> str:
-        return f"StandardModuleSourceResolver(workspace={self.workspace_dir}, settings={self.settings_provider is not None})"
+        return f"StandardModuleSourceResolver(workspaces={self.workspace_dirs}, settings={self.settings_provider is not None})"
