@@ -387,8 +387,11 @@ class PackageSource:
             dist = metadata.distribution(self.package_name)
             # Get package location
             if dist.files:
-                # Filter out .dist-info files to find actual package files
-                package_files = [f for f in dist.files if ".dist-info" not in str(f)]
+                # Filter out metadata directories (.dist-info, .data) to find actual package files
+                package_files = [
+                    f for f in dist.files
+                    if not any(part.endswith((".dist-info", ".data")) for part in f.parts)
+                ]
                 if package_files:
                     package_path = Path(str(dist.locate_file(package_files[0]))).parent
                     return package_path
