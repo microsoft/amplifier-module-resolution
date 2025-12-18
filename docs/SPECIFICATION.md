@@ -278,7 +278,7 @@ source:
 - `git+https://github.com/org/repo@ref#subdirectory=path`
 
 **Behavior:**
-- Downloads to `~/.amplifier/module-cache/<hash>/<ref>/`
+- Downloads to `~/.amplifier/cache/modules/<hash>/<ref>/`
 - Cache key: `hash(url + ref + subdirectory)` - ensures unique cache per module
 - Cache checked before download
 - Uses `uv pip install --target` for download
@@ -290,11 +290,11 @@ When `#subdirectory=path` is specified, `uv` installs content **FROM** subdirect
 Example:
 ```bash
 # Command
-uv pip install --target ~/.amplifier/module-cache/abc123/main \
+uv pip install --target ~/.amplifier/cache/modules/abc123/main \
   "git+https://github.com/org/repo@main#subdirectory=modules/tool-x"
 
-# Content installed at: ~/.amplifier/module-cache/abc123/main/
-# NOT at:              ~/.amplifier/module-cache/abc123/main/modules/tool-x/
+# Content installed at: ~/.amplifier/cache/modules/abc123/main/
+# NOT at:              ~/.amplifier/cache/modules/abc123/main/modules/tool-x/
 ```
 
 This enables collection + module coexistence patterns where both live in the same repository:
@@ -309,7 +309,7 @@ source: git+https://github.com/org/collection@main#subdirectory=modules/tool-x
 Each gets a unique cache key and cache directory, preventing overwrites.
 
 **Caching:**
-- Location: `~/.amplifier/module-cache/`
+- Location: `~/.amplifier/cache/modules/`
 - Invalidation: Manual (`amplifier module refresh`)
 - Concurrent access: Safe (atomic writes)
 
@@ -523,7 +523,7 @@ def resolve_package(module_id: str) -> PackageSource:
 ```
 [module:cache:check] tool-web@main -> not found
 [module:cache:download] Downloading git+https://github.com/.../tool-web@main
-[module:cache:complete] Cached at ~/.amplifier/module-cache/abc123/main
+[module:cache:complete] Cached at ~/.amplifier/cache/modules/abc123/main
 [module:cache:check] tool-web@main -> found (abc123/main)
 ```
 
@@ -698,7 +698,7 @@ See [amplifier-core protocols](https://github.com/microsoft/amplifier-core/blob/
 
 ### Cache Security
 
-**Location:** `~/.amplifier/module-cache/` (user-owned)
+**Location:** `~/.amplifier/cache/modules/` (user-owned)
 **Permissions:** User read/write only
 **Isolation:** Each URL+ref+subdirectory combination gets unique cache directory
 

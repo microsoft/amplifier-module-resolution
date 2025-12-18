@@ -76,7 +76,7 @@ class GitSource:
         self.url = url
         self.ref = ref
         self.subdirectory = subdirectory
-        self.cache_dir = Path.home() / ".amplifier" / "module-cache"
+        self.cache_dir = Path.home() / ".amplifier" / "cache" / "modules"
         self._cached_commit_sha: str | None = None  # Cache for commit_sha property
 
     def _get_effective_url(self) -> str:

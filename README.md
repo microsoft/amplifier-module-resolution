@@ -194,7 +194,7 @@ commit = source.commit_sha  # Returns: full 40-char commit SHA from GitHub
 ```
 
 **Features**:
-- Automatic caching via uv (caches to ~/.amplifier/module-cache/)
+- Automatic caching via uv (caches to ~/.amplifier/cache/modules/)
 - Unique cache key per url+ref+subdirectory (prevents cache collisions)
 - Supports branches, tags, commit SHAs
 - Supports subdirectories within repos (uv installs FROM subdirectory TO target)
@@ -298,7 +298,7 @@ class GitSource:
     def resolve(self) -> Path:
         """Resolve to cached git repository path.
 
-        Downloads repo via uv to cache (~/.amplifier/module-cache/) if not cached.
+        Downloads repo via uv to cache (~/.amplifier/cache/modules/) if not cached.
         When subdirectory is specified, uv installs FROM subdirectory TO cache path.
 
         Cache key includes url+ref+subdirectory for unique isolation per module.

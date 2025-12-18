@@ -272,7 +272,7 @@ tools:
 **Subsequent loads:** Uses cached version (fast)
 **Updates:** Manual refresh required
 
-**Cache location:** `~/.amplifier/module-cache/<hash>/<ref>/`
+**Cache location:** `~/.amplifier/cache/modules/<hash>/<ref>/`
 
 ### Refresh Cached Modules
 
